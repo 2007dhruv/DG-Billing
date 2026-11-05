@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Package, Lock, User, Eye, EyeOff, AlertCircle, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Package, Lock, User, Eye, EyeOff, AlertCircle, ArrowRight } from 'lucide-react';
 
 export function Login({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
@@ -41,12 +41,6 @@ export function Login({ onLoginSuccess }) {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleFillAdmin = () => {
-    setUsername('dg7');
-    setPassword('@iamdhruv');
-    setError('');
   };
 
   return (
@@ -173,39 +167,6 @@ export function Login({ onLoginSuccess }) {
             )}
           </button>
         </form>
-
-        {/* Default Admin Quick Login Helper */}
-        <div style={{
-          marginTop: 24,
-          padding: 14,
-          background: 'rgba(37, 99, 235, 0.1)',
-          border: '1px solid rgba(59, 130, 246, 0.25)',
-          borderRadius: 'var(--radius-md)',
-          textAlign: 'center'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '0.78rem', color: '#93C5FD', fontWeight: 700 }}>
-            <ShieldCheck size={16} /> Super Administrator Credentials
-          </div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 4 }}>
-            Username: <strong style={{ color: '#fff' }}>dg7</strong> | Password: <strong style={{ color: '#fff' }}>@iamdhruv</strong>
-          </div>
-          <button 
-            type="button"
-            onClick={handleFillAdmin}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#60A5FA',
-              fontSize: '0.78rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              marginTop: 6,
-              textDecoration: 'underline'
-            }}
-          >
-            Auto-fill dg7 Credentials
-          </button>
-        </div>
       </div>
     </div>
   );
