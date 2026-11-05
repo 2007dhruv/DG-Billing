@@ -1,15 +1,27 @@
 {
-  "version": 2,
-  "buildCommand": "npm run build",
-  "outputDirectory": "client/dist",
-  "rewrites": [
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "client": {
+      "path": "client",
+      "framework": "vite"
+    },
+    "server": {
+      "path": "server",
+      "framework": "express"
+    }
+  },
+  "routes": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index.js"
+      "destination": {
+        "service": "server"
+      }
     },
     {
       "source": "/(.*)",
-      "destination": "/index.html"
+      "destination": {
+        "service": "client"
+      }
     }
   ]
 }
