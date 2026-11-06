@@ -31,15 +31,16 @@ export function Parties({ businessProfile }) {
     billing_address: '', opening_balance: 0, credit_limit: 0
   });
 
-  // Edit form state
+  // Edit form state (includes directly editable current_balance!)
   const [editParty, setEditParty] = useState({
     id: null, name: '', party_type: 'CUSTOMER', phone: '', email: '',
     gstin: '', pan: '', state: homeState, state_code: homeCode,
-    billing_address: '', credit_limit: 0
+    billing_address: '', credit_limit: 0, current_balance: 0
   });
 
   // Payment form state
   const [selectedPartyForPayment, setSelectedPartyForPayment] = useState(null);
+  const [paymentTransactionType, setPaymentTransactionType] = useState('RECEIVE'); // 'RECEIVE' or 'GIVE_CREDIT' (or 'PAY'/'ADD_BILL')
   const [paymentFormData, setPaymentFormData] = useState({
     amount: '',
     payment_mode: 'CASH',
@@ -128,7 +129,8 @@ export function Parties({ businessProfile }) {
       state: p.state || homeState,
       state_code: p.state_code || homeCode,
       billing_address: p.billing_address || '',
-      credit_limit: p.credit_limit || 0
+      credit_limit: p.credit_limit || 0,
+      current_balance: p.current_balance !== undefined ? p.current_balance : 0
     });
     setShowEditModal(true);
   };
@@ -154,21 +156,28 @@ export function Parties({ businessProfile }) {
     }
   };
 
-  // Open payment modal
-  const handleOpenPayment = (p) => {
+  // Open payment / credit modal
+  const handleOpenPayment = (p, defaultType = 'RECEIVE') => {
     setSelectedPartyForPayment(p);
+    setPaymentTransactionType(defaultType);
     const balance = Math.abs(parseFloat(p.current_balance) || 0);
     setPaymentFormData({
-      amount: balance > 0 ? balance : '',
+      amount: defaultType === 'RECEIVE' || defaultType === 'PAY' ? (balance > 0 ? balance : '') : '',
       payment_mode: 'CASH',
       payment_date: new Date().toISOString().split('T')[0],
       reference_no: '',
-      notes: `${p.party_type === 'CUSTOMER' ? 'Udhar recovery from' : 'Payment made to'} ${p.name}`
+      notes: defaultType === 'GIVE_CREDIT' 
+        ? `Added Udhar / Credit for ${p.name}` 
+        : defaultType === 'ADD_BILL' 
+        ? `Added Credit Purchase from ${p.name}` 
+        : defaultType === 'RECEIVE' 
+        ? `Payment received from ${p.name}` 
+        : `Payment made to ${p.name}`
     });
     setShowPaymentModal(true);
   };
 
-  // Submit direct party payment
+  // Submit payment / credit
   const handleSubmitPayment = async (e) => {
     e.preventDefault();
     if (!selectedPartyForPayment) return;
@@ -177,15 +186,18 @@ export function Parties({ businessProfile }) {
       const res = await fetch(`/api/parties/${selectedPartyForPayment.id}/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(paymentFormData)
+        body: JSON.stringify({
+          ...paymentFormData,
+          transaction_type: paymentTransactionType
+        })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to record payment');
+      if (!res.ok) throw new Error(data.error || 'Failed to record transaction');
 
       await fetchParties();
       setShowPaymentModal(false);
       setSelectedPartyForPayment(null);
-      alert(data.message || 'Payment recorded successfully!');
+      alert(data.message || 'Transaction recorded successfully!');
     } catch (err) {
       alert(err.message);
     } finally {
@@ -208,6 +220,18 @@ export function Parties({ businessProfile }) {
       alert('Error deleting party: ' + err.message);
     }
   };
+
+  // Calculate live preview of balance inside payment modal
+  const curBal = selectedPartyForPayment ? parseFloat(selectedPartyForPayment.current_balance || 0) : 0;
+  const enteredAmt = parseFloat(paymentFormData.amount || 0);
+  let previewNewBalance = curBal;
+  if (selectedPartyForPayment) {
+    if (selectedPartyForPayment.party_type === 'CUSTOMER') {
+      previewNewBalance = paymentTransactionType === 'GIVE_CREDIT' ? curBal + enteredAmt : curBal - enteredAmt;
+    } else {
+      previewNewBalance = paymentTransactionType === 'ADD_BILL' ? curBal - enteredAmt : curBal + enteredAmt;
+    }
+  }
 
   return (
     <div>
@@ -357,17 +381,17 @@ export function Parties({ businessProfile }) {
       </div>
 
       {/* Table */}
-      <div className="card-panel">
-        <div className="table-responsive">
-          <table className="data-table">
+      <div className="card-panel" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="table-responsive" style={{ overflowX: 'auto', width: '100%' }}>
+          <table className="data-table" style={{ width: '100%', minWidth: 920, borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th>Party Name</th>
-                <th>Contact</th>
-                <th>GSTIN & State</th>
-                <th>Billing Address</th>
-                <th>Current Balance (₹)</th>
-                <th style={{ width: 170, textAlign: 'right' }}>Actions</th>
+                <th style={{ minWidth: 170, paddingLeft: 20 }}>Party Name</th>
+                <th style={{ minWidth: 130 }}>Contact</th>
+                <th style={{ minWidth: 140 }}>GSTIN & State</th>
+                <th style={{ minWidth: 220, maxWidth: 280 }}>Billing Address</th>
+                <th style={{ minWidth: 150 }}>Current Balance (₹)</th>
+                <th style={{ minWidth: 210, textAlign: 'right', paddingRight: 20 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -384,15 +408,15 @@ export function Parties({ businessProfile }) {
 
                   return (
                     <tr key={p.id}>
-                      <td>
+                      <td style={{ minWidth: 170, paddingLeft: 20 }}>
                         <div style={{ fontWeight: 700, color: '#fff', fontSize: '0.95rem' }}>{p.name}</div>
                         <span className="badge badge-primary">{p.party_type}</span>
                       </td>
-                      <td>
+                      <td style={{ minWidth: 130 }}>
                         <div style={{ fontWeight: 600 }}>{p.phone || 'N/A'}</div>
                         {p.email && <div style={{ fontSize: '0.75rem', color: 'var(--text-faint)' }}>{p.email}</div>}
                       </td>
-                      <td>
+                      <td style={{ minWidth: 140 }}>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
                           {p.gstin || 'Unregistered / Retail'}
                         </div>
@@ -400,10 +424,19 @@ export function Parties({ businessProfile }) {
                           {p.state} (Code: {p.state_code})
                         </div>
                       </td>
-                      <td style={{ maxWidth: 240, fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                      <td style={{ 
+                        minWidth: 220, 
+                        maxWidth: 280, 
+                        fontSize: '0.82rem', 
+                        color: 'var(--text-muted)', 
+                        whiteSpace: 'normal', 
+                        wordBreak: 'break-word',
+                        lineHeight: 1.4,
+                        paddingRight: 16
+                      }}>
                         {p.billing_address || 'N/A'}
                       </td>
-                      <td>
+                      <td style={{ minWidth: 150 }}>
                         <div style={{ 
                           fontWeight: 800, 
                           fontSize: '1.05rem',
@@ -415,35 +448,57 @@ export function Parties({ businessProfile }) {
                           {isReceivable ? 'You will receive (Udhar)' : isPayable ? 'You have to pay' : 'All Settled'}
                         </div>
                       </td>
-                      <td>
+                      <td style={{ minWidth: 210, paddingRight: 20 }}>
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-                          {/* Settle / Pay Button */}
-                          {isReceivable && (
-                            <button
-                              className="btn btn-sm btn-success"
-                              style={{ background: '#10B981', color: '#fff', fontWeight: 700, padding: '4px 8px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 3 }}
-                              title="Receive Payment from Customer"
-                              onClick={() => handleOpenPayment(p)}
-                            >
-                              <CreditCard size={12} /> Receive
-                            </button>
-                          )}
-                          {isPayable && (
-                            <button
-                              className="btn btn-sm btn-warning"
-                              style={{ background: '#F59E0B', color: '#000', fontWeight: 700, padding: '4px 8px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 3 }}
-                              title="Pay Money to Supplier"
-                              onClick={() => handleOpenPayment(p)}
-                            >
-                              <CreditCard size={12} /> Pay
-                            </button>
+                          {p.party_type === 'CUSTOMER' ? (
+                            <>
+                              {isReceivable && (
+                                <button
+                                  className="btn btn-sm btn-success"
+                                  style={{ background: '#10B981', color: '#fff', fontWeight: 700, padding: '4px 8px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 3 }}
+                                  title="Receive Payment from Customer"
+                                  onClick={() => handleOpenPayment(p, 'RECEIVE')}
+                                >
+                                  <CreditCard size={12} /> Receive
+                                </button>
+                              )}
+                              <button
+                                className="btn btn-sm"
+                                style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#F87171', border: '1px solid rgba(239, 68, 68, 0.3)', fontWeight: 700, padding: '4px 8px', fontSize: '0.75rem' }}
+                                title="Add Udhar / Give Credit to Customer"
+                                onClick={() => handleOpenPayment(p, 'GIVE_CREDIT')}
+                              >
+                                + Udhar
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              {isPayable && (
+                                <button
+                                  className="btn btn-sm btn-warning"
+                                  style={{ background: '#F59E0B', color: '#000', fontWeight: 700, padding: '4px 8px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 3 }}
+                                  title="Pay Money to Supplier"
+                                  onClick={() => handleOpenPayment(p, 'PAY')}
+                                >
+                                  <CreditCard size={12} /> Pay
+                                </button>
+                              )}
+                              <button
+                                className="btn btn-sm"
+                                style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#60A5FA', border: '1px solid rgba(59, 130, 246, 0.3)', fontWeight: 700, padding: '4px 8px', fontSize: '0.75rem' }}
+                                title="Add Supplier Credit Bill"
+                                onClick={() => handleOpenPayment(p, 'ADD_BILL')}
+                              >
+                                + Bill
+                              </button>
+                            </>
                           )}
 
                           {/* Edit Button */}
                           <button
                             className="btn btn-secondary btn-sm"
                             style={{ padding: '6px 8px' }}
-                            title="Edit Party Details"
+                            title="Edit Party Details & Balance"
                             onClick={() => handleOpenEdit(p)}
                           >
                             <Edit2 size={13} />
@@ -610,13 +665,13 @@ export function Parties({ businessProfile }) {
         </div>
       )}
 
-      {/* MODAL 2: EDIT PARTY */}
+      {/* MODAL 2: EDIT PARTY (WITH DIRECT BALANCE ADJUSTMENT!) */}
       {showEditModal && editParty && (
         <div className="modal-overlay">
           <div className="modal-dialog" style={{ maxWidth: 650 }}>
             <div className="modal-header">
               <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff' }}>
-                Edit {editParty.party_type === 'CUSTOMER' ? 'Customer' : 'Supplier'} Details
+                Edit {editParty.party_type === 'CUSTOMER' ? 'Customer' : 'Supplier'} Details & Balance
               </h3>
               <button onClick={() => setShowEditModal(false)} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
             </div>
@@ -701,7 +756,37 @@ export function Parties({ businessProfile }) {
                   />
                 </div>
 
-                <div className="form-group">
+                {/* DIRECT BALANCE CORRECTION / ADJUSTMENT */}
+                <div style={{ 
+                  background: 'rgba(96, 165, 250, 0.08)', 
+                  border: '1px solid rgba(96, 165, 250, 0.25)', 
+                  borderRadius: 10, 
+                  padding: '14px 16px',
+                  marginTop: 6
+                }}>
+                  <div className="form-group" style={{ marginBottom: 6 }}>
+                    <label className="form-label" style={{ fontWeight: 800, color: '#60A5FA', fontSize: '0.92rem' }}>
+                      Current Outstanding Balance (₹) (Udhar / Khata)
+                    </label>
+                    <input 
+                      type="number" 
+                      step="any" 
+                      className="form-input" 
+                      style={{ 
+                        fontWeight: 800, 
+                        fontSize: '1.15rem', 
+                        color: parseFloat(editParty.current_balance) > 0 ? '#F87171' : parseFloat(editParty.current_balance) < 0 ? '#FBBF24' : '#34D399' 
+                      }}
+                      value={editParty.current_balance}
+                      onChange={(e) => setEditParty({ ...editParty, current_balance: e.target.value })}
+                    />
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                      💡 <strong>Direct Amount Change</strong>: If an entry was made wrong, or you need to set the balance to an exact amount (e.g. ₹7,000), enter it here. Positive (+₹) = Customer owes you money.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginTop: 14 }}>
                   <label className="form-label">Credit Limit (₹)</label>
                   <input 
                     type="number" 
@@ -726,14 +811,16 @@ export function Parties({ businessProfile }) {
         </div>
       )}
 
-      {/* MODAL 3: DIRECT PARTY PAYMENT (RECEIVE / PAY) */}
+      {/* MODAL 3: DIRECT PARTY PAYMENT (RECEIVE / GIVE CREDIT / PAY) */}
       {showPaymentModal && selectedPartyForPayment && (
         <div className="modal-overlay">
-          <div className="modal-dialog" style={{ maxWidth: 520 }}>
+          <div className="modal-dialog" style={{ maxWidth: 540 }}>
             <div className="modal-header">
               <div>
                 <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#fff' }}>
-                  {selectedPartyForPayment.party_type === 'CUSTOMER' ? 'Receive Money (Payment In)' : 'Pay Supplier (Payment Out)'}
+                  {selectedPartyForPayment.party_type === 'CUSTOMER' 
+                    ? (paymentTransactionType === 'GIVE_CREDIT' ? 'Give Credit / Add Udhar' : 'Receive Payment (Jama)')
+                    : (paymentTransactionType === 'ADD_BILL' ? 'Add Supplier Credit Bill' : 'Pay Supplier (Payment Out)')}
                 </h3>
                 <span style={{ fontSize: '0.82rem', color: '#60A5FA' }}>
                   Party: {selectedPartyForPayment.name}
@@ -744,35 +831,124 @@ export function Parties({ businessProfile }) {
 
             <form onSubmit={handleSubmitPayment}>
               <div className="modal-body">
-                {/* Outstanding banner */}
+                {/* ACTION TOGGLE TABS */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                  {selectedPartyForPayment.party_type === 'CUSTOMER' ? (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        style={{
+                          flex: 1,
+                          padding: '10px 14px',
+                          fontWeight: 700,
+                          background: paymentTransactionType === 'RECEIVE' ? '#10B981' : 'rgba(255,255,255,0.06)',
+                          color: '#fff',
+                          border: paymentTransactionType === 'RECEIVE' ? '1px solid #10B981' : '1px solid var(--border-subtle)'
+                        }}
+                        onClick={() => setPaymentTransactionType('RECEIVE')}
+                      >
+                        ✓ Receive Payment (તમને મળ્યા - Jama)
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        style={{
+                          flex: 1,
+                          padding: '10px 14px',
+                          fontWeight: 700,
+                          background: paymentTransactionType === 'GIVE_CREDIT' ? '#EF4444' : 'rgba(255,255,255,0.06)',
+                          color: '#fff',
+                          border: paymentTransactionType === 'GIVE_CREDIT' ? '1px solid #EF4444' : '1px solid var(--border-subtle)'
+                        }}
+                        onClick={() => setPaymentTransactionType('GIVE_CREDIT')}
+                      >
+                        + Add Udhar / Credit (તમે ઉધાર આપ્યા)
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        style={{
+                          flex: 1,
+                          padding: '10px 14px',
+                          fontWeight: 700,
+                          background: paymentTransactionType === 'PAY' ? '#F59E0B' : 'rgba(255,255,255,0.06)',
+                          color: '#000',
+                          border: paymentTransactionType === 'PAY' ? '1px solid #F59E0B' : '1px solid var(--border-subtle)'
+                        }}
+                        onClick={() => setPaymentTransactionType('PAY')}
+                      >
+                        ✓ Pay Supplier (ચૂકવણી કરી)
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        style={{
+                          flex: 1,
+                          padding: '10px 14px',
+                          fontWeight: 700,
+                          background: paymentTransactionType === 'ADD_BILL' ? '#3B82F6' : 'rgba(255,255,255,0.06)',
+                          color: '#fff',
+                          border: paymentTransactionType === 'ADD_BILL' ? '1px solid #3B82F6' : '1px solid var(--border-subtle)'
+                        }}
+                        onClick={() => setPaymentTransactionType('ADD_BILL')}
+                      >
+                        + Add Credit Purchase (ઉધાર ખરીદી)
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {/* Outstanding & Preview Banner */}
                 <div style={{
-                  background: 'rgba(255,255,255,0.05)',
+                  background: 'rgba(255,255,255,0.04)',
                   border: '1px solid var(--border-highlight)',
                   padding: '14px 18px',
                   borderRadius: 10,
                   marginBottom: 16,
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 12,
+                  textAlign: 'center'
                 }}>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                    Current Outstanding Balance:
-                  </span>
-                  <span style={{
-                    fontWeight: 800,
-                    fontSize: '1.2rem',
-                    color: selectedPartyForPayment.current_balance > 0 ? '#F87171' : selectedPartyForPayment.current_balance < 0 ? '#FBBF24' : '#34D399'
-                  }}>
-                    ₹ {Math.abs(selectedPartyForPayment.current_balance).toLocaleString('en-IN')}
-                    <span style={{ fontSize: '0.75rem', fontWeight: 500, marginLeft: 6, color: 'var(--text-faint)' }}>
-                      ({selectedPartyForPayment.current_balance > 0 ? 'Udhar to receive' : selectedPartyForPayment.current_balance < 0 ? 'To pay vendor' : 'Settled'})
-                    </span>
-                  </span>
+                  <div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Current Balance</div>
+                    <div style={{
+                      fontWeight: 800,
+                      fontSize: '1.15rem',
+                      color: curBal > 0 ? '#F87171' : curBal < 0 ? '#FBBF24' : '#34D399'
+                    }}>
+                      ₹ {Math.abs(curBal).toLocaleString('en-IN')}
+                      <div style={{ fontSize: '0.7rem', fontWeight: 500, color: 'var(--text-faint)' }}>
+                        {curBal > 0 ? '(Udhar to receive)' : curBal < 0 ? '(To pay vendor)' : '(Settled)'}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ borderLeft: '1px solid var(--border-subtle)', paddingLeft: 12 }}>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>New Balance After Entry</div>
+                    <div style={{
+                      fontWeight: 800,
+                      fontSize: '1.25rem',
+                      color: previewNewBalance > 0 ? '#F87171' : previewNewBalance < 0 ? '#FBBF24' : '#34D399'
+                    }}>
+                      ₹ {Math.abs(previewNewBalance).toLocaleString('en-IN')}
+                      <div style={{ fontSize: '0.7rem', fontWeight: 500, color: 'var(--text-faint)' }}>
+                        {previewNewBalance > 0 ? '(Pending Udhar)' : previewNewBalance < 0 ? '(Pending to pay)' : '(All Settled ₹0)'}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 14 }}>
                   <label className="form-label" style={{ fontWeight: 700 }}>
-                    Payment Amount (₹) *
+                    {paymentTransactionType === 'GIVE_CREDIT' 
+                      ? 'Udhar / Credit Amount to Add (₹) *' 
+                      : paymentTransactionType === 'ADD_BILL' 
+                      ? 'Credit Purchase Bill Amount (₹) *'
+                      : 'Payment Amount (₹) *'}
                   </label>
                   <input 
                     type="number" 
@@ -780,14 +956,11 @@ export function Parties({ businessProfile }) {
                     min="1" 
                     required 
                     className="form-input"
-                    style={{ fontSize: '1.15rem', fontWeight: 800, color: '#34D399' }}
+                    style={{ fontSize: '1.15rem', fontWeight: 800, color: paymentTransactionType === 'GIVE_CREDIT' ? '#F87171' : '#34D399' }}
                     value={paymentFormData.amount}
                     onChange={(e) => setPaymentFormData({ ...paymentFormData, amount: e.target.value })}
-                    placeholder="Enter amount..."
+                    placeholder="Enter amount (e.g. 2000)..."
                   />
-                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                    💡 This payment will automatically update this party's Khata balance and mark linked pending bills as settled!
-                  </div>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
@@ -806,7 +979,7 @@ export function Parties({ businessProfile }) {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Payment Date</label>
+                    <label className="form-label">Date</label>
                     <input 
                       type="date" 
                       className="form-input" 
@@ -821,18 +994,18 @@ export function Parties({ businessProfile }) {
                   <input 
                     type="text" 
                     className="form-input" 
-                    placeholder="e.g. UPI Ref / Cheque #12345"
+                    placeholder="e.g. UPI Ref / Bill #12345"
                     value={paymentFormData.reference_no}
                     onChange={(e) => setPaymentFormData({ ...paymentFormData, reference_no: e.target.value })}
                   />
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Notes / Remarks (Optional)</label>
+                  <label className="form-label">Notes / Description</label>
                   <input 
                     type="text" 
                     className="form-input" 
-                    placeholder="e.g. Cash received at shop by Dhruvbhai"
+                    placeholder="e.g. Bought spare parts on credit / Cash received"
                     value={paymentFormData.notes}
                     onChange={(e) => setPaymentFormData({ ...paymentFormData, notes: e.target.value })}
                   />
@@ -851,10 +1024,14 @@ export function Parties({ businessProfile }) {
                 <button 
                   type="submit" 
                   className="btn btn-primary"
-                  style={{ background: '#10B981', borderColor: '#10B981', fontWeight: 700 }}
+                  style={{ 
+                    background: paymentTransactionType === 'GIVE_CREDIT' ? '#EF4444' : '#10B981', 
+                    borderColor: paymentTransactionType === 'GIVE_CREDIT' ? '#EF4444' : '#10B981', 
+                    fontWeight: 700 
+                  }}
                   disabled={paymentSubmitting}
                 >
-                  {paymentSubmitting ? 'Recording...' : `Record Payment of ₹${parseFloat(paymentFormData.amount || 0).toLocaleString('en-IN')}`}
+                  {paymentSubmitting ? 'Recording...' : `Confirm & Record ₹${parseFloat(paymentFormData.amount || 0).toLocaleString('en-IN')}`}
                 </button>
               </div>
             </form>
