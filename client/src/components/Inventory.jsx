@@ -390,7 +390,7 @@ export function Inventory({ onRefreshDashboard }) {
                       required 
                       value={newItem.name}
                       onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                      placeholder="e.g. Dell 24-inch IPS Monitor"
+                      placeholder="e.g. Rotavator 6 Feet Heavy Duty"
                     />
                   </div>
                   <div className="form-group">
@@ -412,17 +412,17 @@ export function Inventory({ onRefreshDashboard }) {
                       className="form-input" 
                       value={newItem.hsn_sac}
                       onChange={(e) => setNewItem({ ...newItem, hsn_sac: e.target.value })}
-                      placeholder="e.g. 8471"
+                      placeholder="e.g. 8432"
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">SKU / Item Code</label>
+                    <label className="form-label">Item Short Code (SKU)</label>
                     <input 
                       type="text" 
                       className="form-input" 
                       value={newItem.sku}
                       onChange={(e) => setNewItem({ ...newItem, sku: e.target.value })}
-                      placeholder="e.g. MN-24-DELL"
+                      placeholder="e.g. ROTA-6FT"
                     />
                   </div>
                   <div className="form-group">
@@ -512,13 +512,13 @@ export function Inventory({ onRefreshDashboard }) {
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">SKU / Model Barcode</label>
+                    <label className="form-label">Package Barcode / EAN</label>
                     <input 
                       type="text" 
                       className="form-input" 
                       value={newItem.barcode}
                       onChange={(e) => setNewItem({ ...newItem, barcode: e.target.value })}
-                      placeholder="e.g. 8901234567899"
+                      placeholder="e.g. 8901234567890"
                     />
                   </div>
                 </div>

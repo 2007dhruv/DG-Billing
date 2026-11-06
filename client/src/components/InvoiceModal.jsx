@@ -201,6 +201,20 @@ export function InvoiceModal({ invoiceId, onClose }) {
                   <div style={{ marginTop: 8, fontSize: '0.72rem', color: '#64748b' }}>
                     {invoice.business?.terms_conditions}
                   </div>
+
+                  {Array.isArray(invoice.payments) && invoice.payments.length > 0 && (
+                    <div style={{ marginTop: 10, borderTop: '1px dashed #cbd5e1', paddingTop: 8 }}>
+                      <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 4, fontSize: '0.78rem' }}>
+                        Payment Receipts / History:
+                      </div>
+                      {invoice.payments.map((p, idx) => (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', color: '#334155', marginBottom: 2 }}>
+                          <span>{p.payment_date} ({p.payment_mode}){p.reference_no ? ` • Ref: ${p.reference_no}` : ''}:</span>
+                          <strong style={{ color: '#059669' }}>₹ {p.amount?.toLocaleString('en-IN')}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Calculation Summary */}

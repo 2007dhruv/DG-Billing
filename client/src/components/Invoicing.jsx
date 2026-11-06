@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   FileText, Plus, Trash2, Printer, Search, 
   AlertCircle, CheckCircle, ArrowRight, Share2,
-  Barcode, Scan
+  Barcode, Scan, CreditCard
 } from 'lucide-react';
 
 const INDIAN_STATES = [
@@ -72,6 +72,55 @@ export function Invoicing({ onViewInvoice, onRefreshDashboard, businessProfile }
       setPlaceOfSupply(homeState);
     }
   }, [homeState]);
+
+  // Record Payment / Settle Balance Modal State
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState(null);
+  const [paymentFormData, setPaymentFormData] = useState({
+    amount: '',
+    payment_mode: 'CASH',
+    payment_date: new Date().toISOString().split('T')[0],
+    reference_no: '',
+    notes: ''
+  });
+  const [paymentSubmitting, setPaymentSubmitting] = useState(false);
+
+  const handleOpenPaymentModal = (inv) => {
+    setSelectedInvoiceForPayment(inv);
+    setPaymentFormData({
+      amount: inv.balance_due || '',
+      payment_mode: 'CASH',
+      payment_date: new Date().toISOString().split('T')[0],
+      reference_no: '',
+      notes: `Settlement for ${inv.invoice_number}`
+    });
+    setShowPaymentModal(true);
+  };
+
+  const handleSubmitPayment = async (e) => {
+    e.preventDefault();
+    if (!selectedInvoiceForPayment) return;
+    setPaymentSubmitting(true);
+    try {
+      const res = await fetch(`/api/invoices/${selectedInvoiceForPayment.id}/payments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(paymentFormData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to record payment');
+      
+      await fetchInvoices();
+      if (onRefreshDashboard) onRefreshDashboard();
+      setShowPaymentModal(false);
+      setSelectedInvoiceForPayment(null);
+      alert(data.message || 'Payment recorded successfully!');
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setPaymentSubmitting(false);
+    }
+  };
 
   // Line items
   const [lineItems, setLineItems] = useState([
@@ -444,7 +493,17 @@ export function Invoicing({ onViewInvoice, onRefreshDashboard, businessProfile }
                         )}
                       </td>
                       <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          {inv.balance_due > 0 && (
+                            <button 
+                              className="btn btn-warning btn-sm"
+                              style={{ background: '#F59E0B', color: '#000', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}
+                              title="Collect Due Payment / Settle Balance"
+                              onClick={() => handleOpenPaymentModal(inv)}
+                            >
+                              <CreditCard size={14} /> Settle ₹{inv.balance_due}
+                            </button>
+                          )}
                           <button 
                             className="btn btn-primary btn-sm"
                             title="View & Print Invoice"
@@ -861,6 +920,152 @@ export function Invoicing({ onViewInvoice, onRefreshDashboard, businessProfile }
                 </button>
                 <button type="submit" className="btn btn-success" style={{ padding: '10px 24px' }}>
                   <CheckCircle size={18} /> Save Invoice & Deduct Stock
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: COLLECT PAYMENT / SETTLE BALANCE */}
+      {showPaymentModal && selectedInvoiceForPayment && (
+        <div className="modal-overlay">
+          <div className="modal-dialog" style={{ maxWidth: 540 }}>
+            <div className="modal-header">
+              <div>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#fff' }}>
+                  Record Payment / Settle Balance
+                </h3>
+                <span style={{ fontSize: '0.82rem', color: '#60A5FA' }}>
+                  Invoice #{selectedInvoiceForPayment.invoice_number} • {selectedInvoiceForPayment.customer_name}
+                </span>
+              </div>
+              <button 
+                onClick={() => setShowPaymentModal(false)} 
+                style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer' }}
+              >✕</button>
+            </div>
+
+            <form onSubmit={handleSubmitPayment}>
+              <div className="modal-body">
+                {/* Summary banner */}
+                <div style={{ 
+                  background: 'rgba(96, 165, 250, 0.1)', 
+                  border: '1px solid rgba(96, 165, 250, 0.3)', 
+                  padding: '14px 18px', 
+                  borderRadius: 10, 
+                  marginBottom: 18,
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr 1fr',
+                  gap: 12,
+                  textAlign: 'center'
+                }}>
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Total Invoice</div>
+                    <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#fff' }}>
+                      ₹ {selectedInvoiceForPayment.grand_total?.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Already Paid</div>
+                    <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#34D399' }}>
+                      ₹ {selectedInvoiceForPayment.paid_amount?.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Balance Due (Udhar)</div>
+                    <div style={{ fontWeight: 800, fontSize: '1.15rem', color: '#F87171' }}>
+                      ₹ {selectedInvoiceForPayment.balance_due?.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 14 }}>
+                  <label className="form-label" style={{ fontWeight: 700 }}>
+                    Payment Amount Received Now (₹) *
+                  </label>
+                  <input 
+                    type="number" 
+                    step="any" 
+                    min="1" 
+                    max={selectedInvoiceForPayment.balance_due}
+                    required 
+                    className="form-input"
+                    style={{ fontSize: '1.1rem', fontWeight: 800, color: '#34D399' }}
+                    value={paymentFormData.amount}
+                    onChange={(e) => setPaymentFormData({ ...paymentFormData, amount: e.target.value })}
+                    placeholder={`Enter amount up to ₹${selectedInvoiceForPayment.balance_due}`}
+                  />
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                    💡 When the customer pays the full remaining balance (₹{selectedInvoiceForPayment.balance_due}), this invoice will be marked 100% PAID and their customer Udhar balance will automatically clear to ₹0!
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                  <div className="form-group">
+                    <label className="form-label">Payment Mode</label>
+                    <select 
+                      className="form-select"
+                      value={paymentFormData.payment_mode}
+                      onChange={(e) => setPaymentFormData({ ...paymentFormData, payment_mode: e.target.value })}
+                    >
+                      <option value="CASH">Cash</option>
+                      <option value="UPI">UPI / QR Code (GPay, PhonePe, Paytm)</option>
+                      <option value="BANK_TRANSFER">Bank Transfer (NEFT / RTGS / IMPS)</option>
+                      <option value="CHEQUE">Cheque</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Payment Date</label>
+                    <input 
+                      type="date" 
+                      className="form-input" 
+                      value={paymentFormData.payment_date}
+                      onChange={(e) => setPaymentFormData({ ...paymentFormData, payment_date: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 14 }}>
+                  <label className="form-label">Reference / UTR / Cheque No. (Optional)</label>
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    placeholder="e.g. UPI Ref / Cheque #502148"
+                    value={paymentFormData.reference_no}
+                    onChange={(e) => setPaymentFormData({ ...paymentFormData, reference_no: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Notes / Remarks (Optional)</label>
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    placeholder="e.g. Partial recovery from customer"
+                    value={paymentFormData.notes}
+                    onChange={(e) => setPaymentFormData({ ...paymentFormData, notes: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={() => setShowPaymentModal(false)}
+                  disabled={paymentSubmitting}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn btn-primary"
+                  style={{ background: '#10B981', borderColor: '#10B981', fontWeight: 700 }}
+                  disabled={paymentSubmitting}
+                >
+                  {paymentSubmitting ? 'Recording...' : `Confirm & Record ₹${parseFloat(paymentFormData.amount || 0).toLocaleString('en-IN')}`}
                 </button>
               </div>
             </form>

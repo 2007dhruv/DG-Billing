@@ -306,6 +306,34 @@ export async function initDatabase() {
 
     CREATE INDEX IF NOT EXISTS idx_item_barcodes_status ON item_barcodes(business_id, item_id, status);
     CREATE INDEX IF NOT EXISTS idx_item_barcodes_code ON item_barcodes(business_id, barcode);
+
+    CREATE TABLE IF NOT EXISTS invoice_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      business_id INTEGER NOT NULL,
+      invoice_id INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      payment_date TEXT NOT NULL,
+      payment_mode TEXT DEFAULT 'CASH',
+      reference_no TEXT,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
+      FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS purchase_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      business_id INTEGER NOT NULL,
+      purchase_id INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      payment_date TEXT NOT NULL,
+      payment_mode TEXT DEFAULT 'CASH',
+      reference_no TEXT,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
+      FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE CASCADE
+    );
   `);
 
   // Ensure Platform Super Admin account exists (Username: dg7, Password: @iamdhruv)

@@ -1323,7 +1323,8 @@ app.get('/api/invoices/:id', async (req, res) => {
     if (!invoice) return res.status(404).json({ error: 'Invoice not found.' });
 
     const items = await db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? AND business_id = ?').all(req.params.id, bId);
-    res.json({ ...invoice, items, business: ctx.business });
+    const payments = await db.prepare('SELECT * FROM invoice_payments WHERE invoice_id = ? AND business_id = ? ORDER BY payment_date ASC, id ASC').all(req.params.id, bId);
+    res.json({ ...invoice, items, payments: Array.isArray(payments) ? payments : [], business: ctx.business });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1477,6 +1478,13 @@ app.post('/api/invoices', async (req, res) => {
       await db.prepare('UPDATE parties SET current_balance = current_balance + ? WHERE id = ? AND business_id = ?').run(balanceDue, customer_id, bId);
     }
 
+    if (paid > 0) {
+      await db.prepare(`
+        INSERT INTO invoice_payments (business_id, invoice_id, amount, payment_date, payment_mode, reference_no, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(bId, invoiceId, paid, invoice_date || new Date().toISOString().split('T')[0], payment_mode || 'CASH', '', 'Initial payment at invoice creation');
+    }
+
     res.status(201).json({ id: invoiceId, invoice_number: invoiceNumber, grand_total: roundedGrandTotal });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1522,6 +1530,95 @@ app.delete('/api/invoices/:id', async (req, res) => {
     await db.prepare('DELETE FROM invoices WHERE id = ? AND business_id = ?').run(req.params.id, bId);
     res.json({ message: 'Invoice cancelled and stock restored to inventory' });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/invoices/:id/payments', async (req, res) => {
+  try {
+    const ctx = await getAuthContext(req);
+    const bId = ctx?.businessId;
+    if (!bId) return res.status(400).json({ error: 'No business context.' });
+
+    const payments = await db.prepare(`
+      SELECT * FROM invoice_payments 
+      WHERE invoice_id = ? AND business_id = ? 
+      ORDER BY payment_date ASC, id ASC
+    `).all(req.params.id, bId);
+
+    res.json(Array.isArray(payments) ? payments : []);
+  } catch (err) {
+    console.error('Error fetching invoice payments:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/invoices/:id/payments', async (req, res) => {
+  try {
+    const ctx = await getAuthContext(req);
+    const bId = ctx?.businessId;
+    if (!bId) return res.status(400).json({ error: 'No business context.' });
+
+    const invId = req.params.id;
+    const inv = await db.prepare('SELECT * FROM invoices WHERE id = ? AND business_id = ?').get(invId, bId);
+    if (!inv) return res.status(404).json({ error: 'Invoice not found.' });
+
+    const { amount, payment_mode, payment_date, reference_no, notes } = req.body;
+    const payAmt = parseFloat(amount);
+    if (!payAmt || payAmt <= 0) {
+      return res.status(400).json({ error: 'Please enter a valid payment amount greater than 0.' });
+    }
+
+    const currentDue = parseFloat(inv.balance_due) || 0;
+    if (payAmt > currentDue + 0.01) {
+      return res.status(400).json({ error: `Payment amount (₹${payAmt}) cannot exceed pending balance due (₹${currentDue}).` });
+    }
+
+    const newPaid = Math.min(inv.grand_total, (parseFloat(inv.paid_amount) || 0) + payAmt);
+    const newDue = Math.max(0, Math.round((parseFloat(inv.grand_total) || 0) - newPaid));
+    const newStatus = newDue <= 0 ? 'PAID' : 'PARTIAL';
+
+    // Record payment receipt
+    await db.prepare(`
+      INSERT INTO invoice_payments (business_id, invoice_id, amount, payment_date, payment_mode, reference_no, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      bId, invId, payAmt,
+      payment_date || new Date().toISOString().split('T')[0],
+      payment_mode || 'CASH',
+      reference_no || '',
+      notes || ''
+    );
+
+    // Update invoice balance and status
+    await db.prepare(`
+      UPDATE invoices SET 
+        paid_amount = ?, 
+        balance_due = ?, 
+        payment_status = ?,
+        payment_mode = CASE WHEN payment_status = 'UNPAID' THEN ? ELSE payment_mode END
+      WHERE id = ? AND business_id = ?
+    `).run(newPaid, newDue, newStatus, payment_mode || 'CASH', invId, bId);
+
+    // Deduct customer party's balance (Udhar clearance)
+    if (inv.customer_id) {
+      await db.prepare(`
+        UPDATE parties SET current_balance = current_balance - ? 
+        WHERE id = ? AND business_id = ?
+      `).run(payAmt, inv.customer_id, bId);
+    }
+
+    const updatedInv = await db.prepare('SELECT * FROM invoices WHERE id = ? AND business_id = ?').get(invId, bId);
+    const allPayments = await db.prepare('SELECT * FROM invoice_payments WHERE invoice_id = ? AND business_id = ? ORDER BY payment_date ASC, id ASC').all(invId, bId);
+
+    res.json({
+      success: true,
+      invoice: updatedInv,
+      payments: allPayments,
+      message: `Payment of ₹${payAmt.toLocaleString('en-IN')} recorded successfully. Remaining balance: ₹${newDue.toLocaleString('en-IN')}`
+    });
+  } catch (err) {
+    console.error('Error recording invoice payment:', err);
     res.status(500).json({ error: err.message });
   }
 });
