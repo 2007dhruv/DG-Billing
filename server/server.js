@@ -1105,6 +1105,162 @@ app.post('/api/parties', async (req, res) => {
   }
 });
 
+app.put('/api/parties/:id', async (req, res) => {
+  try {
+    const ctx = await getAuthContext(req);
+    const bId = ctx?.businessId;
+    if (!bId) return res.status(400).json({ error: 'No business context.' });
+
+    const partyId = req.params.id;
+    const existing = await db.prepare('SELECT * FROM parties WHERE id = ? AND business_id = ?').get(partyId, bId);
+    if (!existing) return res.status(404).json({ error: 'Party not found.' });
+
+    const {
+      name, phone, email, gstin, pan,
+      state, state_code, billing_address, shipping_address, credit_limit
+    } = req.body;
+
+    await db.prepare(`
+      UPDATE parties SET 
+        name = ?,
+        phone = ?,
+        email = ?,
+        gstin = ?,
+        pan = ?,
+        state = ?,
+        state_code = ?,
+        billing_address = ?,
+        shipping_address = ?,
+        credit_limit = ?
+      WHERE id = ? AND business_id = ?
+    `).run(
+      name || existing.name,
+      phone !== undefined ? phone : existing.phone,
+      email !== undefined ? email : existing.email,
+      gstin !== undefined ? gstin : existing.gstin,
+      pan !== undefined ? pan : existing.pan,
+      state || existing.state,
+      state_code || existing.state_code,
+      billing_address !== undefined ? billing_address : existing.billing_address,
+      shipping_address !== undefined ? shipping_address : existing.shipping_address,
+      credit_limit !== undefined ? (parseFloat(credit_limit) || 0) : existing.credit_limit,
+      partyId,
+      bId
+    );
+
+    const updated = await db.prepare('SELECT * FROM parties WHERE id = ? AND business_id = ?').get(partyId, bId);
+    res.json(updated);
+  } catch (err) {
+    console.error('Error updating party:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/parties/:id/payments', async (req, res) => {
+  try {
+    const ctx = await getAuthContext(req);
+    const bId = ctx?.businessId;
+    if (!bId) return res.status(400).json({ error: 'No business context.' });
+
+    const partyId = req.params.id;
+    const party = await db.prepare('SELECT * FROM parties WHERE id = ? AND business_id = ?').get(partyId, bId);
+    if (!party) return res.status(404).json({ error: 'Party not found.' });
+
+    const { amount, payment_mode, payment_date, reference_no, notes } = req.body;
+    const payAmt = parseFloat(amount);
+    if (!payAmt || payAmt <= 0) {
+      return res.status(400).json({ error: 'Please enter a valid payment amount greater than 0.' });
+    }
+
+    if (party.party_type === 'CUSTOMER') {
+      // Customer payment received: reduces what customer owes us
+      await db.prepare('UPDATE parties SET current_balance = current_balance - ? WHERE id = ? AND business_id = ?').run(payAmt, partyId, bId);
+
+      // Also apply against open invoices if any exist (oldest first)
+      let remainingToApply = payAmt;
+      const openInvoices = await db.prepare(`
+        SELECT * FROM invoices 
+        WHERE customer_id = ? AND business_id = ? AND balance_due > 0 
+        ORDER BY invoice_date ASC, id ASC
+      `).all(partyId, bId);
+
+      for (const inv of openInvoices) {
+        if (remainingToApply <= 0) break;
+        const due = parseFloat(inv.balance_due) || 0;
+        const applied = Math.min(due, remainingToApply);
+        const newPaid = (parseFloat(inv.paid_amount) || 0) + applied;
+        const newDue = Math.max(0, due - applied);
+        const newStatus = newDue <= 0 ? 'PAID' : 'PARTIAL';
+
+        await db.prepare(`
+          UPDATE invoices SET paid_amount = ?, balance_due = ?, payment_status = ? 
+          WHERE id = ? AND business_id = ?
+        `).run(newPaid, newDue, newStatus, inv.id, bId);
+
+        await db.prepare(`
+          INSERT INTO invoice_payments (business_id, invoice_id, amount, payment_date, payment_mode, reference_no, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          bId, inv.id, applied,
+          payment_date || new Date().toISOString().split('T')[0],
+          payment_mode || 'CASH',
+          reference_no || '',
+          notes ? `Customer direct payment: ${notes}` : 'Direct payment received from customer'
+        );
+
+        remainingToApply -= applied;
+      }
+    } else {
+      // Vendor payment made: reduces what we owe the vendor (brings negative balance closer to 0)
+      await db.prepare('UPDATE parties SET current_balance = current_balance + ? WHERE id = ? AND business_id = ?').run(payAmt, partyId, bId);
+
+      // Also apply against open purchase bills if any exist (oldest first)
+      let remainingToApply = payAmt;
+      const openPurchases = await db.prepare(`
+        SELECT * FROM purchases 
+        WHERE vendor_id = ? AND business_id = ? AND balance_due > 0 
+        ORDER BY bill_date ASC, id ASC
+      `).all(partyId, bId);
+
+      for (const pur of openPurchases) {
+        if (remainingToApply <= 0) break;
+        const due = parseFloat(pur.balance_due) || 0;
+        const applied = Math.min(due, remainingToApply);
+        const newPaid = (parseFloat(pur.paid_amount) || 0) + applied;
+        const newDue = Math.max(0, due - applied);
+
+        await db.prepare(`
+          UPDATE purchases SET paid_amount = ?, balance_due = ? 
+          WHERE id = ? AND business_id = ?
+        `).run(newPaid, newDue, pur.id, bId);
+
+        await db.prepare(`
+          INSERT INTO purchase_payments (business_id, purchase_id, amount, payment_date, payment_mode, reference_no, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          bId, pur.id, applied,
+          payment_date || new Date().toISOString().split('T')[0],
+          payment_mode || 'CASH',
+          reference_no || '',
+          notes ? `Vendor direct payment: ${notes}` : 'Direct payment made to vendor'
+        );
+
+        remainingToApply -= applied;
+      }
+    }
+
+    const updated = await db.prepare('SELECT * FROM parties WHERE id = ? AND business_id = ?').get(partyId, bId);
+    res.json({
+      success: true,
+      party: updated,
+      message: `Payment of ₹${payAmt.toLocaleString('en-IN')} recorded successfully. New Balance: ₹${Math.abs(updated.current_balance).toLocaleString('en-IN')}`
+    });
+  } catch (err) {
+    console.error('Error recording party payment:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/parties/:id', async (req, res) => {
   try {
     const ctx = await getAuthContext(req);
