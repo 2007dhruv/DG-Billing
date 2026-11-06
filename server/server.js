@@ -754,11 +754,11 @@ app.get('/api/items', async (req, res) => {
     `);
 
     for (const it of items) {
-      const bcs = getAvailableBarcodes.all(it.id, bId);
-      it.available_barcodes = bcs.map(b => b.barcode);
-      it.barcodes_count = bcs.length;
-      if (bcs.length > 0) {
-        it.current_stock = bcs.length;
+      const bcs = await getAvailableBarcodes.all(it.id, bId);
+      it.available_barcodes = (bcs || []).map(b => b.barcode);
+      it.barcodes_count = (bcs || []).length;
+      if ((bcs || []).length > 0) {
+        it.current_stock = (bcs || []).length;
       }
     }
 
@@ -810,7 +810,7 @@ app.post('/api/items', async (req, res) => {
         VALUES (?, ?, ?, 'AVAILABLE')
       `);
       for (const code of barcodeList) {
-        insertBc.run(bId, itemId, code);
+        await insertBc.run(bId, itemId, code);
       }
     }
 
@@ -874,7 +874,7 @@ app.post('/api/items/:id/barcodes', async (req, res) => {
     let addedCount = 0;
     for (const code of codeList) {
       if (code) {
-        insertStmt.run(bId, req.params.id, code);
+        await insertStmt.run(bId, req.params.id, code);
         addedCount++;
       }
     }
@@ -1445,7 +1445,7 @@ app.post('/api/invoices', async (req, res) => {
         `);
 
         for (const bc of barcodesToMark) {
-          markSoldStmt.run(invoiceId, bId, it.item_id, bc);
+          await markSoldStmt.run(invoiceId, bId, it.item_id, bc);
         }
       }
 

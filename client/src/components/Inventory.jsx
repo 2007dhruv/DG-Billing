@@ -47,7 +47,7 @@ export function Inventory({ onRefreshDashboard }) {
 
       const res = await fetch(url);
       const data = await res.json();
-      setItems(data);
+      setItems(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error fetching items:', err);
     } finally {

@@ -14,21 +14,26 @@ export const client = createClient({
   authToken: process.env.TURSO_AUTH_TOKEN
 });
 
+function sanitizeArgs(args) {
+  const flat = args.length === 1 && Array.isArray(args[0]) ? args[0] : args;
+  return flat.map(a => a === undefined ? null : a);
+}
+
 export const db = {
   prepare(sql) {
     return {
       async all(...args) {
-        const flatArgs = args.length === 1 && Array.isArray(args[0]) ? args[0] : args;
+        const flatArgs = sanitizeArgs(args);
         const res = await client.execute({ sql, args: flatArgs });
         return res.rows;
       },
       async get(...args) {
-        const flatArgs = args.length === 1 && Array.isArray(args[0]) ? args[0] : args;
+        const flatArgs = sanitizeArgs(args);
         const res = await client.execute({ sql, args: flatArgs });
         return res.rows[0];
       },
       async run(...args) {
-        const flatArgs = args.length === 1 && Array.isArray(args[0]) ? args[0] : args;
+        const flatArgs = sanitizeArgs(args);
         const res = await client.execute({ sql, args: flatArgs });
         return {
           lastInsertRowid: res.lastInsertRowid !== undefined ? Number(res.lastInsertRowid) : undefined,

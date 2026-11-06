@@ -83,7 +83,7 @@ export function Invoicing({ onViewInvoice, onRefreshDashboard, businessProfile }
       setLoading(true);
       const res = await fetch('/api/invoices');
       const data = await res.json();
-      setInvoices(data);
+      setInvoices(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -99,8 +99,8 @@ export function Invoicing({ onViewInvoice, onRefreshDashboard, businessProfile }
       ]);
       const items = await itRes.json();
       const parties = await ptRes.json();
-      setItemsList(items);
-      setPartiesList(parties);
+      setItemsList(Array.isArray(items) ? items : []);
+      setPartiesList(Array.isArray(parties) ? parties : []);
     } catch (err) {
       console.error(err);
     }

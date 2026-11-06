@@ -31,9 +31,12 @@ export function Quotations({ onRefreshDashboard, onViewInvoice }) {
         fetch('/api/items'),
         fetch('/api/parties?type=CUSTOMER')
       ]);
-      setQuotations(await qRes.json());
-      setItemsList(await itRes.json());
-      setPartiesList(await ptRes.json());
+      const qs = await qRes.json();
+      const its = await itRes.json();
+      const pts = await ptRes.json();
+      setQuotations(Array.isArray(qs) ? qs : []);
+      setItemsList(Array.isArray(its) ? its : []);
+      setPartiesList(Array.isArray(pts) ? pts : []);
     } catch (err) {
       console.error(err);
     } finally {

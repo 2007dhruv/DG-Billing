@@ -21,7 +21,7 @@ export function Parties({ businessProfile }) {
       setLoading(true);
       const res = await fetch(`/api/parties?type=${activeTab}`);
       const data = await res.json();
-      setParties(data);
+      setParties(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
     } finally {

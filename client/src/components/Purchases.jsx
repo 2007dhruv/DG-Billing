@@ -34,9 +34,9 @@ export function Purchases({ onRefreshDashboard }) {
       const purs = await purRes.json();
       const vens = await venRes.json();
       const its = await itRes.json();
-      setPurchases(purs);
-      setVendorsList(vens);
-      setItemsList(its);
+      setPurchases(Array.isArray(purs) ? purs : []);
+      setVendorsList(Array.isArray(vens) ? vens : []);
+      setItemsList(Array.isArray(its) ? its : []);
     } catch (err) {
       console.error(err);
     } finally {

@@ -119,6 +119,7 @@ export function Login({ onLoginSuccess }) {
                 placeholder="Enter your username or email"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
                 autoFocus
               />
             </div>
@@ -136,6 +137,7 @@ export function Login({ onLoginSuccess }) {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
               />
               <button
                 type="button"
